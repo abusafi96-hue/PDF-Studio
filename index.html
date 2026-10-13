@@ -1,0 +1,403 @@
+```html
+<!DOCTYPE html>
+<html lang="de" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PDF Studio Pro Mobile - Frei bearbeitbarer PDF & Text Editor mit KI</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- jsPDF & html2canvas for PDF Generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- PDF.js for Real PDF Parsing & Rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f7ff',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            },
+            ai: {
+              400: '#a78bfa',
+              500: '#8b5cf6',
+              600: '#7c3aed',
+              700: '#6d28d9',
+              900: '#4c1d95',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+    
+    .canvas-page {
+      box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
+      transition: transform 0.2s ease;
+      position: relative;
+    }
+
+    .drawing-canvas {
+      touch-action: none;
+    }
+
+    .draggable-text-box {
+      position: absolute;
+      cursor: move;
+      border: 1px dashed rgba(59, 130, 246, 0.6);
+      padding: 4px;
+      border-radius: 4px;
+      user-select: none;
+      background: rgba(255, 255, 255, 0.9);
+      color: #0f172a;
+      touch-action: none;
+    }
+    .draggable-text-box.active {
+      border-color: #2563eb;
+      box-shadow: 0 0 8px rgba(37, 99, 235, 0.5);
+    }
+    .draggable-text-box [contenteditable="true"] {
+      outline: none;
+      cursor: text;
+    }
+
+    .stamp-badge {
+      cursor: grab;
+      user-select: none;
+      touch-action: none;
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 10px rgba(139, 92, 246, 0.4); }
+      50% { box-shadow: 0 0 20px rgba(139, 92, 246, 0.8); }
+    }
+    .ai-glow {
+      animation: pulse-glow 3s infinite;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans overflow-hidden select-none bg-slate-950">
+
+  <header class="h-14 bg-slate-800 border-b border-slate-700/80 px-3 flex items-center justify-between z-20 shrink-0">
+    <div class="flex items-center space-x-2">
+      <div class="w-8 h-8 bg-gradient-to-tr from-ai-600 to-brand-600 rounded-lg flex items-center justify-center text-white font-bold text-base shadow-lg ai-glow">
+        <i class="fa-solid fa-wand-magic-sparkles"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-xs sm:text-sm tracking-wide leading-none">PDF Studio AI</h1>
+        <span class="text-[9px] text-slate-400 block sm:inline">Mobile Edition</span>
+      </div>
+    </div>
+
+    <div class="flex items-center space-x-1.5">
+      <button onclick="openAIModal()" class="p-2 sm:px-3 sm:py-1.5 text-xs bg-gradient-to-r from-ai-600 to-brand-600 text-white rounded-lg font-semibold shadow ai-glow flex items-center space-x-1">
+        <i class="fa-solid fa-robot"></i>
+        <span class="hidden sm:inline">KI Copilot</span>
+      </button>
+      <button onclick="openScannerModal()" class="p-2 sm:px-3 sm:py-1.5 text-xs bg-emerald-600 text-white rounded-lg font-medium shadow flex items-center space-x-1">
+        <i class="fa-solid fa-camera"></i>
+        <span class="hidden sm:inline">Scan</span>
+      </button>
+      <button onclick="generatePDF()" class="p-2 sm:px-3 sm:py-1.5 text-xs bg-brand-600 text-white rounded-lg font-medium shadow flex items-center space-x-1">
+        <i class="fa-solid fa-download"></i>
+        <span class="hidden sm:inline">Export</span>
+      </button>
+      <button onclick="toggleSidebar()" class="md:hidden p-2 text-slate-300 hover:text-white bg-slate-700 rounded-lg">
+        <i class="fa-solid fa-bars"></i>
+      </button>
+    </div>
+  </header>
+
+  <div class="flex-1 flex overflow-hidden relative">
+
+    <aside id="sidebar" class="absolute md:relative inset-y-0 left-0 w-80 bg-slate-800 border-r border-slate-700 flex flex-col overflow-y-auto shrink-0 z-30 transition-transform duration-300 -translate-x-full md:translate-x-0">
+      
+      <div class="p-3 border-b border-slate-700">
+        <div class="flex justify-between items-center mb-2">
+          <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">1. Dokumente & Dateien</label>
+          <button onclick="toggleSidebar()" class="md:hidden text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        
+        <div id="dropzone" onclick="document.getElementById('fileInput').click()" 
+             class="border-2 border-dashed border-slate-600 hover:border-brand-500 bg-slate-900/50 rounded-xl p-3 text-center cursor-pointer transition">
+          <i class="fa-solid fa-cloud-arrow-up text-xl text-brand-500 mb-1"></i>
+          <p class="text-xs font-medium text-slate-300">Dateien oder Fotos hochladen</p>
+          <input type="file" id="fileInput" multiple accept="application/pdf,image/*,text/*" class="hidden" onchange="handleFileSelect(event)">
+        </div>
+
+        <div class="mt-2 grid grid-cols-2 gap-2">
+          <button onclick="openScannerModal(); toggleSidebar();" class="py-1.5 text-xs bg-emerald-600 text-white rounded-lg font-medium flex items-center justify-center space-x-1">
+            <i class="fa-solid fa-camera"></i>
+            <span>Kamera</span>
+          </button>
+          <button onclick="clearAll()" class="py-1.5 text-xs bg-slate-700 text-slate-300 rounded-lg flex items-center justify-center space-x-1">
+            <i class="fa-solid fa-trash-can"></i>
+            <span>Leeren</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-3 border-b border-slate-700 space-y-2 bg-slate-900/40">
+        <label class="text-xs font-semibold text-ai-400 uppercase tracking-wider block">
+          <i class="fa-solid fa-sparkles mr-1"></i> KI Schnellauswahl
+        </label>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button onclick="aiSmartAutofill(); toggleSidebar();" class="p-2 bg-slate-800 border border-slate-700 rounded-lg text-left transition flex items-center space-x-1.5">
+            <i class="fa-solid fa-wand-magic text-ai-400 text-xs"></i>
+            <span class="text-[11px] font-medium">Smart Fill</span>
+          </button>
+          <button onclick="openSignatureModal(); toggleSidebar();" class="p-2 bg-slate-800 border border-slate-700 rounded-lg text-left transition flex items-center space-x-1.5">
+            <i class="fa-solid fa-signature text-indigo-400 text-xs"></i>
+            <span class="text-[11px] font-medium">Unterschrift</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="p-3 border-b border-slate-700 space-y-2 bg-slate-800/80">
+        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">2. Text-Formatierung</label>
+        
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-[10px] text-slate-400 block mb-1">Größe</label>
+            <select id="selectedFontSize" onchange="applyTextFormatting()" class="w-full bg-slate-900 border border-slate-700 rounded p-1 text-xs text-slate-200">
+              <option value="12px">12px - Klein</option>
+              <option value="16px" selected>16px - Normal</option>
+              <option value="20px">20px - Mittel</option>
+              <option value="24px">24px - Groß</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-400 block mb-1">Farbe</label>
+            <div class="flex items-center space-x-1">
+              <input type="color" id="selectedTextColor" value="#0f172a" onchange="applyTextFormatting()" class="w-7 h-7 rounded border border-slate-700 bg-transparent">
+              <input type="color" id="selectedTextBg" value="#ffffff" onchange="applyTextFormatting()" class="w-7 h-7 rounded border border-slate-700 bg-transparent">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-3 border-b border-slate-700 space-y-3">
+        <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">3. Seiten-Format</label>
+        
+        <select id="pageSizeSelect" onchange="updatePageConfig()" class="w-full bg-slate-900 border border-slate-700 rounded p-1.5 text-xs text-slate-200">
+          <option value="a4">DIN A4</option>
+          <option value="letter">US Letter</option>
+        </select>
+
+        <div class="grid grid-cols-2 gap-2">
+          <button id="portraitBtn" onclick="setOrientation('portrait')" class="py-1 px-2 text-xs rounded bg-brand-600 text-white font-medium">Hochformat</button>
+          <button id="landscapeBtn" onclick="setOrientation('landscape')" class="py-1 px-2 text-xs rounded bg-slate-700 text-slate-300">Querformat</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="flex-1 bg-slate-950 flex flex-col overflow-hidden relative">
+      <div class="bg-slate-900 border-b border-slate-800 px-3 py-1.5 flex items-center justify-between text-xs text-slate-400">
+        <div class="flex items-center space-x-2">
+          <span id="pageCountInfo" class="bg-slate-800 px-2 py-0.5 rounded text-slate-300 font-mono text-[10px]">0 Seiten</span>
+          <button onclick="addFreeFloatingText()" class="px-2 py-1 bg-brand-600 text-white rounded text-[11px] font-medium flex items-center space-x-1">
+            <i class="fa-solid fa-font"></i>
+            <span>+ Text</span>
+          </button>
+        </div>
+        
+        <div class="flex items-center space-x-1">
+          <button onclick="zoomOut()" class="p-1 text-slate-300"><i class="fa-solid fa-minus"></i></button>
+          <span id="zoomLevel" class="font-mono text-[10px] w-10 text-center">100%</span>
+          <button onclick="zoomIn()" class="p-1 text-slate-300"><i class="fa-solid fa-plus"></i></button>
+        </div>
+      </div>
+
+      <div id="previewScrollArea" class="flex-1 overflow-auto p-4 flex flex-col items-center space-y-6">
+        <div id="emptyState" class="m-auto text-center py-12 text-slate-500">
+          <i class="fa-regular fa-images text-5xl mb-3 text-slate-600"></i>
+          <h2 class="text-sm font-medium text-slate-300">Kein Dokument geladen</h2>
+          <p class="text-[11px] max-w-xs mt-1 text-slate-500">Foto aufnehmen oder PDF hochladen um zu starten.</p>
+        </div>
+        <div id="pagesContainer" class="flex flex-col items-center space-y-6 max-w-full"></div>
+      </div>
+
+      <div class="md:hidden bg-slate-900 border-t border-slate-800 p-2 flex items-center justify-around z-10">
+        <button onclick="openAIModal()" class="flex flex-col items-center text-ai-400">
+          <i class="fa-solid fa-robot text-lg"></i>
+          <span class="text-[9px] mt-0.5">KI</span>
+        </button>
+        <button onclick="openScannerModal()" class="flex flex-col items-center text-emerald-400">
+          <i class="fa-solid fa-camera text-lg"></i>
+          <span class="text-[9px] mt-0.5">Scan</span>
+        </button>
+        <button onclick="openSignatureModal()" class="flex flex-col items-center text-indigo-400">
+          <i class="fa-solid fa-signature text-lg"></i>
+          <span class="text-[9px] mt-0.5">Signieren</span>
+        </button>
+        <button onclick="toggleSidebar()" class="flex flex-col items-center text-slate-300">
+          <i class="fa-solid fa-sliders text-lg"></i>
+          <span class="text-[9px] mt-0.5">Optionen</span>
+        </button>
+        <button onclick="generatePDF()" class="flex flex-col items-center text-brand-400">
+          <i class="fa-solid fa-download text-lg"></i>
+          <span class="text-[9px] mt-0.5">Export</span>
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <div id="sidebarBackdrop" onclick="toggleSidebar()" class="fixed inset-0 bg-black/60 z-20 hidden md:hidden"></div>
+
+  <div id="aiModal" class="fixed inset-0 bg-black/80 z-50 hidden flex flex-col items-center justify-center p-2 sm:p-4">
+    <div class="bg-slate-900 border border-ai-500/50 rounded-xl w-full max-w-2xl h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+      <div class="h-12 bg-slate-800 border-b border-slate-700 px-4 flex items-center justify-between">
+        <div class="flex items-center space-x-2 text-white font-bold text-xs">
+          <i class="fa-solid fa-robot text-ai-400"></i>
+          <span>KI Copilot</span>
+        </div>
+        <button onclick="closeAIModal()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="flex-1 flex flex-col overflow-hidden">
+        <div class="p-2 bg-slate-800/80 border-b border-slate-700 flex overflow-x-auto space-x-2">
+          <button onclick="aiRunAction('summary')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-700 text-xs rounded-lg text-slate-200 shrink-0">Zusammenfassen</button>
+          <button onclick="aiRunAction('translate')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-700 text-xs rounded-lg text-slate-200 shrink-0">Übersetzen</button>
+          <button onclick="aiRunAction('audit')" class="px-2.5 py-1 bg-slate-900 hover:bg-slate-700 text-xs rounded-lg text-slate-200 shrink-0">Audit</button>
+        </div>
+
+        <div id="aiChatOutput" class="flex-1 p-4 overflow-y-auto space-y-3">
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-slate-200">
+            Hallo! Ich bin Ihr KI-Assistent. Wählen Sie eine Funktion oben oder stellen Sie eine Frage.
+          </div>
+        </div>
+
+        <div class="p-3 bg-slate-900 border-t border-slate-800 flex space-x-2">
+          <input type="text" id="aiChatInput" placeholder="Frage stellen..." onkeydown="if(event.key==='Enter') sendAIChat()" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none">
+          <button onclick="sendAIChat()" class="px-4 py-2 bg-ai-600 text-white rounded-lg text-xs font-semibold">Senden</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="scannerModal" class="fixed inset-0 bg-black/90 z-50 hidden flex flex-col items-center justify-center p-2">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md flex flex-col overflow-hidden">
+      <div class="h-10 bg-slate-800 border-b border-slate-700 px-3 flex items-center justify-between text-xs font-semibold text-emerald-400">
+        <span>Dokumenten Scanner</span>
+        <button onclick="closeScannerModal()" class="text-slate-400"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="p-3 flex flex-col items-center space-y-3">
+        <video id="webcamVideo" autoplay playsinline class="w-full h-64 bg-black rounded-lg object-cover"></video>
+        <div class="flex space-x-2 w-full">
+          <button onclick="captureScan()" class="flex-1 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold">Foto aufnehmen</button>
+          <button onclick="closeScannerModal()" class="py-2 px-4 bg-slate-700 text-slate-300 rounded-lg text-xs">Abbrechen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="signatureModal" class="fixed inset-0 bg-black/80 z-50 hidden flex flex-col items-center justify-center p-2">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md flex flex-col overflow-hidden">
+      <div class="h-10 bg-slate-800 border-b border-slate-700 px-3 flex items-center justify-between text-xs font-semibold text-indigo-400">
+        <span>Unterschrift zeichnen</span>
+        <button onclick="closeSignatureModal()" class="text-slate-400"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="p-3 flex flex-col items-center space-y-3">
+        <div class="border border-slate-700 rounded bg-white w-full">
+          <canvas id="sigCanvas" width="350" height="180" class="w-full cursor-crosshair drawing-canvas"></canvas>
+        </div>
+        <div class="flex space-x-2 w-full">
+          <button onclick="clearSigCanvas()" class="flex-1 py-2 bg-slate-800 text-slate-300 rounded text-xs">Löschen</button>
+          <button onclick="saveSignature()" class="flex-1 py-2 bg-indigo-600 text-white rounded text-xs font-semibold">Einfügen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let state = {
+      items: [],
+      pageSize: 'a4',
+      orientation: 'portrait',
+      zoom: 0.8
+    };
+
+    let webcamStream = null;
+    const PAGE_SIZES = {
+      a4: { w: 210, h: 297 },
+      letter: { w: 215.9, h: 279.4 }
+    };
+
+    function showToast(message, isError = false) {
+      let toast = document.getElementById('appToast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'appToast';
+        toast.className = 'fixed bottom-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg text-xs font-semibold shadow-lg transition-all duration-300 opacity-0 pointer-events-none';
+        document.body.appendChild(toast);
+      }
+      toast.innerText = message;
+      toast.className = `fixed bottom-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg text-xs font-semibold shadow-lg transition-all duration-300 ${isError ? 'bg-red-600 text-white' : 'bg-slate-800 border border-slate-700 text-slate-100'}`;
+      toast.style.opacity = '1';
+      setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+    }
+
+    function toggleSidebar() {
+      const sb = document.getElementById('sidebar');
+      const backdrop = document.getElementById('sidebarBackdrop');
+      sb.classList.toggle('-translate-x-full');
+      backdrop.classList.toggle('hidden');
+    }
+
+    function openAIModal() { document.getElementById('aiModal').classList.remove('hidden'); }
+    function closeAIModal() { document.getElementById('aiModal').classList.add('hidden'); }
+
+    async function handleFileSelect(e) {
+      await processFiles(e.target.files);
+    }
+
+    async function processFiles(files) {
+      for (const file of Array.from(files)) {
+        if (file.type === 'application/pdf') {
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+            const pdfDoc = await loadingTask.promise;
+            
+            for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+              const page = await pdfDoc.getPage(pageNum);
+              const viewport = page.getViewport({ scale: 1.5 });
+              const canvas = document.createElement('canvas');
+              const context = canvas.getContext('2d');
+              canvas.width = viewport.width;
+              canvas.height = viewport.height;
+
+              await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+              state.items.push({
+                id: 'item_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+                type: 'image',
+                src: canvas.toDataURL('image/jpeg', 0.85),
+                textBoxes: [],
+                overlays: []
+              });
+            }
+            renderPages();
+            showToast('PDF erfolgreich geladen.');
+          } catch (err) {
+            showToast('PDF Ladefehler: ' + err.message, t
